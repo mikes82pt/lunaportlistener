@@ -1,77 +1,116 @@
 import socket
+import logging
 import threading
-import time
+import os
+import platform
+from typing import Tuple
+from colorama import init, Fore, Style
 
-def start_tcp_listener(port):
-    # Create an IPv4 TCP socket
-    ipv4_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    ipv4_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    ipv4_socket.bind(('', port))
-    ipv4_socket.listen()
+VERSION = "Luna Port Listener v2.0"
 
-    # Create an IPv6 TCP socket
-    ipv6_socket = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
-    ipv6_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    ipv6_socket.bind(('', port))
-    ipv6_socket.listen()
+# Initialize colorama
+init(autoreset=True)
 
-    print(f"Listening for TCP connections on port {port} (IPv4 and IPv6)...")
+# Set Windows console title
+if platform.system() == "Windows":
+    os.system(f"title {VERSION}")
 
-    def accept_connections(sock):
-        while True:
-            client_socket, client_address = sock.accept()
-            with client_socket:
-                print(f"TCP Connection from {client_address}")
-                data = client_socket.recv(1024)
-                if data:
-                    print(f"Received data: {data.decode()}")
-                    client_socket.sendall(b"Data received")
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s\n%(message)s\n",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
 
-    # Start a thread for IPv4 and IPv6
-    threading.Thread(target=accept_connections, args=(ipv4_socket,), daemon=True).start()
-    threading.Thread(target=accept_connections, args=(ipv6_socket,), daemon=True).start()
+BUFFER_SIZE = 1024
 
-def start_udp_listener(port):
-    # Create an IPv4 UDP socket
-    ipv4_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    ipv4_socket.bind(('', port))
 
-    # Create an IPv6 UDP socket
-    ipv6_socket = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
-    ipv6_socket.bind(('', port))
+def handle_tcp_client(client_socket: socket.socket, client_address: Tuple, buffer_size: int) -> None:
+    """
+    Handle communication with a single TCP client.
+    """
+    with client_socket:
+        logging.info(Fore.CYAN + f"[TCP] New connection from {client_address}")
+        try:
+            while True:
+                data = client_socket.recv(buffer_size)
+                if not data:
+                    break
+                logging.info(
+                    Fore.CYAN + f"[TCP] Data from {client_address}:\n    {data.decode(errors='replace')}"
+                )
+                client_socket.sendall(b"Data received")
+        except Exception as e:
+            logging.error(Fore.RED + f"[TCP] Error with {client_address}: {e}")
+        finally:
+            logging.info(Fore.CYAN + f"[TCP] Connection closed: {client_address}")
 
-    print(f"Listening for UDP connections on port {port} (IPv4 and IPv6)...")
 
-    def receive_data(sock):
-        while True:
-            data, client_address = sock.recvfrom(1024)
-            print(f"UDP Connection from {client_address}")
-            print(f"Received data: {data.decode()}")
-            sock.sendto(b"Data received", client_address)
+def tcp_listener(port: int, buffer_size: int = BUFFER_SIZE) -> None:
+    """
+    Start a multi-threaded dual-stack TCP listener.
+    """
+    try:
+        with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as server_socket:
+            server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            server_socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)  # Dual stack
+            server_socket.bind(('', port))
+            server_socket.listen()
+            logging.info(Fore.CYAN + f"[TCP] Listening (IPv4 + IPv6) on port {port}...")
 
-    # Start a thread for IPv4 and IPv6
-    threading.Thread(target=receive_data, args=(ipv4_socket,), daemon=True).start()
-    threading.Thread(target=receive_data, args=(ipv6_socket,), daemon=True).start()
+            while True:
+                client_socket, client_address = server_socket.accept()
+                threading.Thread(
+                    target=handle_tcp_client,
+                    args=(client_socket, client_address, buffer_size),
+                    daemon=True
+                ).start()
+    except Exception as e:
+        logging.error(Fore.RED + f"[TCP] Listener error: {e}")
+
+
+def udp_listener(port: int, buffer_size: int = BUFFER_SIZE) -> None:
+    """
+    Start a dual-stack UDP listener.
+    """
+    try:
+        with socket.socket(socket.AF_INET6, socket.SOCK_DGRAM) as server_socket:
+            server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            server_socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)  # Dual stack
+            server_socket.bind(('', port))
+            logging.info(Fore.GREEN + f"[UDP] Listening (IPv4 + IPv6) on port {port}...")
+
+            while True:
+                data, client_address = server_socket.recvfrom(buffer_size)
+                logging.info(
+                    Fore.GREEN + f"[UDP] Datagram from {client_address}:\n    {data.decode(errors='replace')}"
+                )
+                server_socket.sendto(b"Data received", client_address)
+    except Exception as e:
+        logging.error(Fore.RED + f"[UDP] Listener error: {e}")
+
 
 if __name__ == "__main__":
-    print("Luna Port Listener 1.0")
+    print("\n" + Fore.YELLOW + "=" * 50)
+    print(Fore.YELLOW + f"  {VERSION}")
+    print(Fore.YELLOW + "=" * 50 + "\n")
+
     try:
         port = int(input("Enter the port number to listen on (1-65535): "))
-        if 1 <= port <= 65535:
-            protocol = input("Choose protocol (tcp/udp): ").strip().lower()
-            if protocol == 'tcp':
-                start_tcp_listener(port)
-            elif protocol == 'udp':
-                start_udp_listener(port)
-            else:
-                print("Invalid protocol. Please choose 'tcp' or 'udp'.")
-        else:
-            print("Port number must be between 1 and 65535.")
-        
-        # Keep the main thread alive
+        if not (1 <= port <= 65535):
+            raise ValueError("Port number must be between 1 and 65535.")
+
+        # Start TCP and UDP listeners in separate threads
+        threading.Thread(target=tcp_listener, args=(port,), daemon=True).start()
+        threading.Thread(target=udp_listener, args=(port,), daemon=True).start()
+
+        logging.info(Fore.YELLOW + f"TCP and UDP listeners started on port {port} (IPv4 + IPv6).\nPress Ctrl+C to stop.")
+
+        # Keep main thread alive
         while True:
-            time.sleep(1)  # Sleep to prevent busy waiting
-    except ValueError:
-        print("Invalid input. Please enter a valid port number.")
+            threading.Event().wait(1)
+
+    except ValueError as ve:
+        logging.error(Fore.RED + str(ve))
     except KeyboardInterrupt:
-        print("Shutting down the listener.")
+        logging.info(Fore.YELLOW + "Shutting down listeners...")
