@@ -65,6 +65,6 @@ lunaportlistener.exe --port 8080 --bind 0.0.0.0
 ## **System Requirements**
 
 * **Windows 8.1** (32-bit or 64-bit)
-* Compatible with Windows 10 and Windows 11 as well
+* Compatible with Windows 10 (32-bit or 64-bit) and Windows 11 as well
 
 ---
