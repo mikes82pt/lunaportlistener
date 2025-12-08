@@ -1,6 +1,4 @@
----
-
-# **Luna Port Listener**
+# Luna Port Listener
 
 **Luna Port Listener** is a lightweight TCP and UDP listener designed for network testing, debugging, and packet inspection.
 This release is a full Go rewrite of the original Python implementation and now runs natively on Windows with no external dependencies.
