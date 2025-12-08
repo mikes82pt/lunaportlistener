@@ -60,7 +60,10 @@ Example:
 lunaportlistener.exe --port 8080 --bind 0.0.0.0
 ```
 
+CTRL + C to close
+
 ---
+
 
 ## **System Requirements**
 
