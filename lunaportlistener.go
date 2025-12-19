@@ -1,152 +1,149 @@
 package main
 
 import (
-    "bufio"
-    "flag"
-    "fmt"
-    "log"
-    "net"
-    "os/exec"
-    "runtime"
-    "strings"
+	"bufio"
+	"flag"
+	"fmt"
+	"log"
+	"net"
+	"strings"
 )
 
-const VERSION = "Luna Port Listener v3.1 (Go Rewrite)"
-
-func setWindowsTitle(title string) {
-    if runtime.GOOS == "windows" {
-        cmd := exec.Command("cmd", "/c", "title", title)
-        _ = cmd.Run()
-    }
-}
+const VERSION = "Luna Port Listener v3.2 (Go Rewrite)"
 
 func printHelp() {
 	fmt.Println(VERSION)
+	fmt.Println()
 	fmt.Println("Usage:")
 	fmt.Println("  --port <number>     Port number to listen on")
-	fmt.Println("  --bind <IP>         Bind to a specific IPv4 or IPv6 address")
+	fmt.Println("  --ipv6-only         Listen on IPv6 only")
+	fmt.Println("  --ipv4-only         Listen on IPv4 only")
 	fmt.Println("  --help              Show this help message")
 	fmt.Println()
-	fmt.Println("If no parameters are provided, the listener waits for user input and binds to all IPv4 and IPv6 addresses.")
-	fmt.Println("CTRL + C to close")
+	fmt.Println("Default behavior:")
+	fmt.Println("  IPv6-first dual-stack listener (Windows)")
+	fmt.Println("CTRL + C to exit")
 }
 
 func handleTCP(conn net.Conn) {
-    defer conn.Close()
-    addr := conn.RemoteAddr().String()
-    log.Printf("[TCP] New connection from %s", addr)
+	defer conn.Close()
+	addr := conn.RemoteAddr().String()
+	log.Printf("[TCP] Connection from %s", addr)
 
-    reader := bufio.NewReader(conn)
+	reader := bufio.NewReader(conn)
 
-    for {
-        data, err := reader.ReadString('\n')
-        if err != nil {
-            log.Printf("[TCP] Connection closed: %s", addr)
-            return
-        }
+	for {
+		data, err := reader.ReadString('\n')
+		if err != nil {
+			log.Printf("[TCP] Connection closed: %s", addr)
+			return
+		}
 
-        log.Printf("[TCP] Data from %s:\n    %s", addr, strings.TrimSpace(data))
-        conn.Write([]byte("Data received\n"))
-    }
+		log.Printf("[TCP] Data from %s:\n    %s", addr, strings.TrimSpace(data))
+		_, _ = conn.Write([]byte("Data received\n"))
+	}
 }
 
-func tcpListener(bindAddr, port string) {
-    networks := []string{"tcp4", "tcp6"}
+func tcpListener(network, address string) {
+	l, err := net.Listen(network, address)
+	if err != nil {
+		log.Fatalf("[TCP] Listen failed (%s %s): %v", network, address, err)
+	}
 
-    for _, netw := range networks {
-        go func(network string) {
-            address := net.JoinHostPort(bindAddr, port)
-            l, err := net.Listen(network, address)
-            if err != nil {
-                log.Printf("[TCP] Failed to listen on %s (%s): %v", network, address, err)
-                return
-            }
-            log.Printf("[TCP] Listening on %s, %s...", network, address)
+	log.Printf("[TCP] Listening on %s %s", network, address)
 
-            for {
-                conn, err := l.Accept()
-                if err != nil {
-                    log.Printf("[TCP] Accept error: %v", err)
-                    continue
-                }
-                go handleTCP(conn)
-            }
-        }(netw)
-    }
+	for {
+		conn, err := l.Accept()
+		if err != nil {
+			log.Printf("[TCP] Accept error: %v", err)
+			continue
+		}
+		go handleTCP(conn)
+	}
 }
 
-func udpListener(bindAddr, port string) {
-    networks := []string{"udp4", "udp6"}
+func udpListener(network, address string) {
+	addr, err := net.ResolveUDPAddr(network, address)
+	if err != nil {
+		log.Fatalf("[UDP] Resolve failed (%s %s): %v", network, address, err)
+	}
 
-    for _, netw := range networks {
-        go func(network string) {
-            address := net.JoinHostPort(bindAddr, port)
-            addr, err := net.ResolveUDPAddr(network, address)
-            if err != nil {
-                log.Printf("[UDP] Resolve failed on %s: %v", network, err)
-                return
-            }
+	conn, err := net.ListenUDP(network, addr)
+	if err != nil {
+		log.Fatalf("[UDP] Listen failed (%s %s): %v", network, address, err)
+	}
 
-            conn, err := net.ListenUDP(network, addr)
-            if err != nil {
-                log.Printf("[UDP] Listen failed on %s: %v", network, err)
-                return
-            }
+	log.Printf("[UDP] Listening on %s %s", network, address)
 
-            log.Printf("[UDP] Listening on %s, %s...", network, address)
-            buffer := make([]byte, 1024)
+	buffer := make([]byte, 1024)
 
-            for {
-                n, remote, err := conn.ReadFromUDP(buffer)
-                if err != nil {
-                    log.Printf("[UDP] Error: %v", err)
-                    continue
-                }
+	for {
+		n, remote, err := conn.ReadFromUDP(buffer)
+		if err != nil {
+			log.Printf("[UDP] Read error: %v", err)
+			continue
+		}
 
-                msg := string(buffer[:n])
-                log.Printf("[UDP] Datagram from %s:\n    %s", remote, strings.TrimSpace(msg))
-
-                conn.WriteToUDP([]byte("Data received"), remote)
-            }
-        }(netw)
-    }
+		msg := string(buffer[:n])
+		log.Printf("[UDP] Datagram from %s:\n    %s", remote, strings.TrimSpace(msg))
+		_, _ = conn.WriteToUDP([]byte("Data received"), remote)
+	}
 }
 
 func main() {
-    setWindowsTitle(VERSION)
+	var port string
+	var ipv6Only bool
+	var ipv4Only bool
+	var showHelp bool
 
-    var port string
-    var bindAddr string
-    var showHelp bool
+	flag.StringVar(&port, "port", "", "Port number to listen on")
+	flag.BoolVar(&ipv6Only, "ipv6-only", false, "IPv6 only")
+	flag.BoolVar(&ipv4Only, "ipv4-only", false, "IPv4 only")
+	flag.BoolVar(&showHelp, "help", false, "Show help")
+	flag.Parse()
 
-    flag.StringVar(&port, "port", "", "Port number to listen on")
-    flag.StringVar(&bindAddr, "bind", "", "Bind to a specific IPv4/IPv6 address")
-    flag.BoolVar(&showHelp, "help", false, "Show help message")
-    flag.Parse()
+	if showHelp {
+		printHelp()
+		return
+	}
 
-    if showHelp {
-        printHelp()
-        return
-    }
+	if ipv6Only && ipv4Only {
+		log.Fatal("Cannot use --ipv6-only and --ipv4-only together")
+	}
 
-    if port == "" {
-        fmt.Println("===================================")
-        fmt.Println(" ", VERSION)
-        fmt.Println("===================================\n")
+	if port == "" {
+		fmt.Println("===================================")
+		fmt.Println(" ", VERSION)
+		fmt.Println("===================================\n")
+		fmt.Print("Enter port to listen on (1-65535): ")
+		fmt.Scanln(&port)
+	}
 
-        fmt.Print("Enter port to listen on (1-65535): ")
-        fmt.Scanln(&port)
+	var tcpNet, udpNet, address string
 
-        bindAddr = "" // all addresses
-    }
+	switch {
+	case ipv4Only:
+		tcpNet = "tcp4"
+		udpNet = "udp4"
+		address = "0.0.0.0:" + port
+		log.Println("Mode: IPv4-only")
 
-    if bindAddr == "" {
-        bindAddr = "" // all IPv4 + IPv6
-    }
+	case ipv6Only:
+		tcpNet = "tcp6"
+		udpNet = "udp6"
+		address = "[::]:" + port
+		log.Println("Mode: IPv6-only")
 
-    log.Printf("Starting listeners on port %s (bind: '%s')...", port, bindAddr)
-    tcpListener(bindAddr, port)
-    udpListener(bindAddr, port)
+	default:
+		tcpNet = "tcp"
+		udpNet = "udp"
+		address = "[::]:" + port
+		log.Println("Mode: IPv6 dual-stack)")
+	}
 
-    select {} // keep running
+	go tcpListener(tcpNet, address)
+	go udpListener(udpNet, address)
+
+	select {}
 }
+
