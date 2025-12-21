@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
-const VERSION = "Luna Port Listener v3.3 (Go Rewrite)"
+const VERSION = "Luna Port Listener v3.4 (Go Rewrite)"
 
 func printHelp() {
 	fmt.Println(VERSION)
@@ -19,6 +21,8 @@ func printHelp() {
 	fmt.Println("  --port string        Ports to listen on (single, list, or range)")
 	fmt.Println("  --ipv4               Bind to all IPv4 addresses")
 	fmt.Println("  --ipv6               Bind to all IPv6 addresses")
+	fmt.Println("  --autoclose int      Auto close after N minutes in non-interactive mode")
+	fmt.Println("                       Default: 15, 0 = never close")
 	fmt.Println("  --help               Show this help message")
 	fmt.Println()
 	fmt.Println("If no parameters are provided, the listener runs in interactive mode.")
@@ -133,10 +137,12 @@ func main() {
 	var ipv4Only bool
 	var ipv6Only bool
 	var showHelp bool
+	var autoClose int
 
-	flag.StringVar(&portInput, "port", "", "Ports to listen on (single, list, or range")
+	flag.StringVar(&portInput, "port", "", "Ports to listen on (single, list, or range)")
 	flag.BoolVar(&ipv4Only, "ipv4", false, "Bind to all IPv4 addresses")
 	flag.BoolVar(&ipv6Only, "ipv6", false, "Bind to all IPv6 addresses")
+	flag.IntVar(&autoClose, "autoclose", 15, "Auto close after N minutes (non-interactive mode)")
 	flag.BoolVar(&showHelp, "help", false, "Show help message")
 	flag.Parse()
 
@@ -151,7 +157,7 @@ func main() {
 		fmt.Println("===================================")
 		fmt.Println(" ", VERSION)
 		fmt.Println("===================================\n")
-		fmt.Print("Enter ports (single, list, or range): ")
+		fmt.Print("Enter ports: ")
 		fmt.Scanln(&portInput)
 	}
 
@@ -160,7 +166,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// default: both stacks enabled
+	// Default: both stacks enabled
 	if !ipv4Only && !ipv6Only {
 		ipv4Only = true
 		ipv6Only = true
@@ -175,6 +181,15 @@ func main() {
 			go tcpListener("tcp6", port)
 			go udpListener("udp6", port)
 		}
+	}
+
+	// Auto-close logic (non-interactive only)
+	if !interactive && autoClose > 0 {
+		log.Printf("Auto-close enabled: exiting after %d minutes", autoClose)
+		time.AfterFunc(time.Duration(autoClose)*time.Minute, func() {
+			log.Println("Auto-close timer reached, exiting")
+			os.Exit(0)
+		})
 	}
 
 	select {}
